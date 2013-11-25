@@ -83,11 +83,10 @@ wait_response(Ctx, Ref, Timeout) ->
         {message, Resp} ->
             {message, Ref, Resp};
         {log, Msg} ->
-            error_logger:info_msg("[js log] ~s~n", [Msg]),
+            error_logger:info_msg("~s~n", [Msg]),
             send(Ctx, Ref, true);
         Other ->
             throw(Other)
     after Timeout ->
         throw({error, timeout, Ref})
     end.
-
