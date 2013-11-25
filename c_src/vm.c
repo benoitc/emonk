@@ -1,4 +1,4 @@
-// This file is part of Emonk released under the MIT license. 
+// This file is part of Emonk released under the MIT license.
 // See the LICENSE file for more information.
 
 #include <assert.h>
@@ -25,7 +25,7 @@ struct job_t
     ErlNifEnv*      env;
     ENTERM          ref;
     ErlNifPid       pid;
-    
+
     ErlNifBinary    script;
     ENTERM          name;
     ENTERM          args;
@@ -53,11 +53,7 @@ static JSClass global_class = {
     JS_PropertyStub,
     JS_PropertyStub,
     JS_PropertyStub,
-#ifdef JS185
     JS_StrictPropertyStub,
-#else
-    JS_PropertyStub,
-#endif
     JS_EnumerateStub,
     JS_ResolveStub,
     JS_ConvertStub,
@@ -116,11 +112,7 @@ static JSClass jserl_class = {
     JS_PropertyStub,
     JS_PropertyStub,
     JS_PropertyStub,
-#ifdef JS185
     JS_StrictPropertyStub,
-#else
-    JS_PropertyStub,
-#endif
     JS_EnumerateStub,
     JS_ResolveStub,
     JS_ConvertStub,
@@ -128,7 +120,6 @@ static JSClass jserl_class = {
     JSCLASS_NO_OPTIONAL_MEMBERS
 };
 
-#ifdef JS185 
 static JSBool
 jserl_send(JSContext* cx, uintN argc, jsval* vp)
 {
@@ -137,14 +128,14 @@ jserl_send(JSContext* cx, uintN argc, jsval* vp)
     job_ptr job;
     ENTERM mesg;
     jsval* argv = JS_ARGV(cx, vp);
-    
+
     if(argc < 0)
     {
         return JS_FALSE;
     }
-    
+
     assert(vm != NULL && "Context has no vm.");
-    
+
     env = enif_alloc_env();
     mesg = vm_mk_message(env, to_erl(env, cx, argv[0]));
 
@@ -164,80 +155,38 @@ jserl_send(JSContext* cx, uintN argc, jsval* vp)
         JS_ReportError(cx, "Context closing.");
         return JS_FALSE;
     }
-    
+
     assert(job->type == job_response && "Invalid message response.");
     JS_SET_RVAL(cx, vp, to_js(job->env, cx, job->args));
     job_destroy(job);
 
     return JS_TRUE;
 }
-#else
-static JSBool
-jserl_send(JSContext* cx, JSObject* obj, uintN argc, jsval* argv, jsval* rval)
-{
-    vm_ptr vm = (vm_ptr) JS_GetContextPrivate(cx);
-    ErlNifEnv* env;
-    job_ptr job;
-    ENTERM mesg;
-    
-    if(argc < 0)
-    {
-        return JS_FALSE;
-    }
-   
-    assert(vm != NULL && "Context has no vm.");
-    
-    env = enif_alloc_env();
-    mesg = vm_mk_message(env, to_erl(env, cx, argv[0]));
 
-    // If pid is not alive, raise an error.
-    // XXX: Can I make this uncatchable?
-    if(!enif_send(NULL, &(vm->curr_job->pid), env, mesg))
-    {
-        JS_ReportError(cx, "Context closing.");
-        return JS_FALSE;
-    }
-
-    job = queue_receive(vm->jobs);
-    if(job->type == job_close)
-    {
-        // XXX: Can I make this uncatchable?
-        job_destroy(job);
-        JS_ReportError(cx, "Context closing.");
-        return JS_FALSE;
-    }
-    
-    assert(job->type == job_response && "Invalid message response.");
-    *rval = to_js(job->env, cx, job->args);
-    job_destroy(job);
-
-    return JS_TRUE;
-}
-#endif
 
 int
 install_jserl(JSContext* cx, JSObject* gl)
 {
     JSObject* obj;
-    
+
     obj = JS_NewObject(cx, &jserl_class, NULL, NULL);
     if(obj == NULL)
     {
         return 0;
     }
-    
+
     if(!JS_DefineFunction(cx, obj, "send", jserl_send, 1,
                         JSPROP_ENUMERATE | JSPROP_READONLY | JSPROP_PERMANENT))
     {
         return 0;
     }
-    
+
     if(!JS_DefineProperty(cx, gl, "erlang", OBJECT_TO_JSVAL(obj), NULL, NULL,
                         JSPROP_ENUMERATE | JSPROP_READONLY | JSPROP_PERMANENT))
     {
         return 0;
     }
-    
+
     return 1;
 }
 
@@ -257,10 +206,10 @@ vm_init(ErlNifResourceType* res_type, JSRuntime* runtime, size_t stack_size)
 
     vm->jobs = queue_create();
     if(vm->jobs == NULL) goto error;
-    
+
     vm->opts = enif_thread_opts_create("vm_thread_opts");
     if(enif_thread_create("", &vm->tid, vm_run, vm, vm->opts) != 0) goto error;
-    
+
     return vm;
 
 error:
@@ -274,14 +223,14 @@ vm_destroy(ErlNifEnv* env, void* obj)
     vm_ptr vm = (vm_ptr) obj;
     job_ptr job = job_create();
     void* resp;
-    
+
     assert(job != NULL && "Failed to create job.");
     job->type = job_close;
     queue_push(vm->jobs, job);
     queue_send(vm->jobs, job);
 
     enif_thread_join(vm->tid, &resp);
-    
+
     queue_destroy(vm->jobs);
     enif_thread_opts_destroy(vm->opts);
 }
@@ -295,7 +244,7 @@ vm_run(void* arg)
     job_ptr job;
     ENTERM resp;
     int flags;
-    
+
     cx = JS_NewContext(vm->runtime, vm->stack_size);
     if(cx == NULL)
     {
@@ -313,29 +262,26 @@ vm_run(void* arg)
     flags |= JSOPTION_XML;
     JS_SetOptions(cx, JS_GetOptions(cx) | flags);
 
-#ifdef JS185
     gl = JS_NewCompartmentAndGlobalObject(cx, &global_class, NULL);
-#else
-    gl = JS_NewObject(cx, &global_class, NULL, NULL);
-#endif
+
     if(gl == NULL)
     {
         fprintf(stderr, "Failed to create global object.\n");
         goto done;
     }
-    
+
     if(!JS_InitStandardClasses(cx, gl))
     {
         fprintf(stderr, "Failed to initialize classes.\n");
         goto done;
     }
-    
+
     if(!install_jserl(cx, gl))
     {
         fprintf(stderr, "Failed to install erlang object.");
         goto done;
     }
-    
+
     JS_SetErrorReporter(cx, vm_report_error);
     JS_SetContextPrivate(cx, (void*) vm);
 
@@ -391,7 +337,7 @@ vm_add_eval(vm_ptr vm, ENTERM ref, ENPID pid, ENBINARY bin)
     job->type = job_eval;
     job->ref = enif_make_copy(job->env, ref);
     job->pid = pid;
-    
+
     if(!enif_alloc_binary(bin.size, &(job->script))) goto error;
     memcpy(job->script.data, bin.data, bin.size);
 
@@ -429,12 +375,12 @@ vm_send(vm_ptr vm, ENTERM data)
 {
     job_ptr job = job_create();
     if(job == NULL) goto error;
-    
+
     job->type = job_response;
     job->args = enif_make_copy(job->env, data);
-    
+
     if(!queue_send(vm->jobs, job)) goto error;
-    
+
     return 1;
 error:
     if(job != NULL) job_destroy(job);
@@ -491,7 +437,7 @@ vm_call(JSContext* cx, JSObject* gl, job_ptr job)
     int argc;
 
     // Get the function object.
-    
+
     func = to_js(job->env, cx, job->name);
     if(func == JSVAL_VOID)
     {
@@ -504,7 +450,7 @@ vm_call(JSContext* cx, JSObject* gl, job_ptr job)
         resp = vm_mk_error(job->env, util_mk_atom(job->env, "internal_error"));
         goto send;
     }
-    
+
     if(!JS_GetPropertyById(cx, gl, idp, &func))
     {
         resp = vm_mk_error(job->env, util_mk_atom(job->env, "bad_property"));
@@ -518,7 +464,7 @@ vm_call(JSContext* cx, JSObject* gl, job_ptr job)
     }
 
     // Creating function arguments.
-    
+
     if(enif_is_empty_list(job->env, job->args))
     {
         argc = 0;
