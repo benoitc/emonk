@@ -3,6 +3,8 @@
 
 #include <assert.h>
 #include <string.h>
+#include <time.h>
+
 
 #include "queue.h"
 #include "util.h"
@@ -69,6 +71,7 @@ void vm_report_error(JSContext* cx, const char* mesg, JSErrorReport* report);
 ENTERM vm_mk_ok(ErlNifEnv* env, ENTERM reason);
 ENTERM vm_mk_error(ErlNifEnv* env, ENTERM reason);
 ENTERM vm_mk_message(ErlNifEnv* env, ENTERM data);
+ENTERM vm_mk_log(ErlNifEnv* env, ENTERM data);
 
 // Job constructor and destructor
 
@@ -129,7 +132,7 @@ jserl_send(JSContext* cx, uintN argc, jsval* vp)
     ENTERM mesg;
     jsval* argv = JS_ARGV(cx, vp);
 
-    if(argc < 0)
+    if(argc != 1)
     {
         return JS_FALSE;
     }
@@ -156,7 +159,50 @@ jserl_send(JSContext* cx, uintN argc, jsval* vp)
         return JS_FALSE;
     }
 
-    assert(job->type == job_response && "Invalid message response.");
+    assert(job->type == job_response && "Invalid log response.");
+    JS_SET_RVAL(cx, vp, to_js(job->env, cx, job->args));
+    job_destroy(job);
+
+    return JS_TRUE;
+}
+
+static JSBool
+jserl_log(JSContext* cx, uintN argc, jsval* vp)
+{
+    vm_ptr vm = (vm_ptr) JS_GetContextPrivate(cx);
+    ErlNifEnv* env;
+    job_ptr job;
+    ENTERM mesg;
+    jsval* argv = JS_ARGV(cx, vp);
+
+    if(argc != 1)
+    {
+        return JS_FALSE;
+    }
+
+    assert(vm != NULL && "Context has no vm.");
+
+    env = enif_alloc_env();
+    mesg = vm_mk_log(env, to_erl(env, cx, argv[0]));
+
+    // If pid is not alive, raise an error.
+    // XXX: Can I make this uncatchable?
+    if(!enif_send(NULL, &(vm->curr_job->pid), env, mesg))
+    {
+        JS_ReportError(cx, "Context closing.");
+        return JS_FALSE;
+    }
+
+    job = queue_receive(vm->jobs);
+    if(job->type == job_close)
+    {
+        // XXX: Can I make this uncatchable?
+        job_destroy(job);
+        JS_ReportError(cx, "Context closing.");
+        return JS_FALSE;
+    }
+
+    assert(job->type == job_response && "Invalid log response.");
     JS_SET_RVAL(cx, vp, to_js(job->env, cx, job->args));
     job_destroy(job);
 
@@ -171,6 +217,12 @@ install_jserl(JSContext* cx, JSObject* gl)
 
     obj = JS_NewObject(cx, &jserl_class, NULL, NULL);
     if(obj == NULL)
+    {
+        return 0;
+    }
+
+    if(!JS_DefineFunction(cx, gl, "elog", jserl_log, 1,
+                        JSPROP_ENUMERATE | JSPROP_READONLY | JSPROP_PERMANENT))
     {
         return 0;
     }
@@ -558,5 +610,12 @@ ENTERM
 vm_mk_message(ErlNifEnv* env, ENTERM data)
 {
     ENTERM message = util_mk_atom(env, "message");
+    return enif_make_tuple2(env, message, data);
+}
+
+ENTERM
+vm_mk_log(ErlNifEnv* env, ENTERM data)
+{
+    ENTERM message = util_mk_atom(env, "log");
     return enif_make_tuple2(env, message, data);
 }

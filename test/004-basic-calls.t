@@ -1,6 +1,6 @@
 #!/usr/bin/env escript
 %%! -smp +K true -pa ./test/ -pa ./ebin/
-% This file is part of Emonk released under the MIT license. 
+% This file is part of Emonk released under the MIT license.
 % See the LICENSE file for more information.
 
 main(_) ->
@@ -14,7 +14,7 @@ test() ->
 
     test_eval_undefined(Ctx),
     test_call_undefined(Ctx),
-    
+
     test_eval_error(Ctx),
     test_call_error(Ctx).
 
@@ -37,7 +37,7 @@ test_call_ok(Ctx) ->
         {ok, 12},
         "Successful function call round trip with an argument string."
     ),
-    
+
     etap:is(
         emonk:call(Ctx, <<"g">>, [600, foo]),
         {ok, 1200},
@@ -70,7 +70,7 @@ test_eval_error(Ctx) ->
         emonk:eval(Ctx, <<"f * 3">>),
         "Reported the undefined error."
     ),
-    
+
     etap:fun_is(
         fun({error, {_, _, _}}) -> true; (_) -> false end,
         emonk:eval(Ctx, <<"throw \"foo\";">>),

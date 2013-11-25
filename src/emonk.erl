@@ -1,4 +1,4 @@
-% This file is part of Emonk released under the MIT license. 
+% This file is part of Emonk released under the MIT license.
 % See the LICENSE file for more information.
 
 -module(emonk).
@@ -27,16 +27,7 @@ eval(Ctx, Script) ->
 eval(Ctx, Script, Timeout) ->
     Ref = make_ref(),
     ok = eval(Ctx, Ref, self(), Script),
-    receive
-        {Ref, Resp} ->
-            Resp;
-        {message, Resp} ->
-            {message, Ref, Resp};
-        Other ->
-            throw(Other)
-    after Timeout ->
-        throw({error, timeout, Ref})
-    end.
+    wait_response(Ctx, Ref, Timeout).
 
 eval(_Ctx, _Ref, _Dest, _Script) ->
     not_loaded(?LINE).
@@ -48,14 +39,7 @@ call(Ctx, Name, Args) ->
 call(Ctx, Name, Args, Timeout) ->
     Ref = make_ref(),
     ok = call(Ctx, Ref, self(), Name, Args),
-    receive
-        {Ref, Resp} ->
-            Resp;
-        {message, Resp} ->
-            {message, Ref, Resp}
-    after Timeout ->
-        throw({error, timeout, Ref})
-    end.
+    wait_response(Ctx, Ref, Timeout).
 
 call(_Ctx, _Ref, _Dest, _Name, _Args) ->
     not_loaded(?LINE).
@@ -68,14 +52,7 @@ send(Ctx, Ref, Data) ->
 
 send(Ctx, Ref, Data, Timeout) ->
     ok = send(Ctx, Data),
-    receive
-        {Ref, Resp} ->
-            Resp;
-        {message, Resp} ->
-            {message, Resp}
-    after Timeout ->
-        throw({error, timeout, Ref})
-    end.
+    wait_response(Ctx, Ref, Timeout).
 
 
 %% Internal API
@@ -97,3 +74,20 @@ init() ->
 
 not_loaded(Line) ->
     exit({not_loaded, [{module, ?MODULE}, {line, Line}]}).
+
+
+wait_response(Ctx, Ref, Timeout) ->
+    receive
+        {Ref, Resp} ->
+            Resp;
+        {message, Resp} ->
+            {message, Ref, Resp};
+        {log, Msg} ->
+            error_logger:info_msg("[js log] ~s~n", [Msg]),
+            send(Ctx, Ref, true);
+        Other ->
+            throw(Other)
+    after Timeout ->
+        throw({error, timeout, Ref})
+    end.
+
